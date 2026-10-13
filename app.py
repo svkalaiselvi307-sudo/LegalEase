@@ -1,19 +1,37 @@
-import streamlit as st
-import google.generativeai as genai
+import os
 from datetime import date
 
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
-model = genai.GenerativeModel("gemini-1.5-flash")
+import streamlit as st
+import google.generativeai as genai
+
+# ---------- Gemini setup ----------
+API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
 
 st.set_page_config(page_title="LegalEase", page_icon="⚖️")
 st.title("⚖️ LegalEase - AI Legal Document Generator")
 st.caption("Disclaimer: AI generated draft only. Lawyer review is mandatory!")
 
+if not API_KEY:
+    st.error("API key not found. Render > Environment la GOOGLE_API_KEY add pannunga.")
+    st.stop()
+
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel("gemini-2.5-flash")
+
+# ---------- Inputs ----------
+DOC_TYPES = [
+    "Rental Agreement",
+    "NDA - Non Disclosure",
+    "Employment Offer Letter",
+    "Affidavit",
+    "Service Agreement",
+]
+
 col1, col2 = st.columns(2)
 with col1:
-doc_type = st.selectbox("Document Type", ["Rental Agreement", "NDA - Non Disclosure", "Employment Offer Letter", "Affidavit", "Service Agreement"])
+    doc_type = st.selectbox("Document Type", DOC_TYPES)
 with col2:
-doc_date = st.date_input("Date", date.today())
+    doc_date = st.date_input("Date", date.today())
 
 st.divider()
 st.subheader("Party Details")
@@ -22,23 +40,45 @@ p1_address = st.text_input("Party 1 Address")
 p2_name = st.text_input("Party 2 / Tenant / Employee Name")
 p2_address = st.text_input("Party 2 Address")
 
-extra = st.text_area("Important Clauses / Salary / Rent Amount / Duration (Tamil/English la type pannalam)", height=120)
+extra = st.text_area(
+    "Extra details (rent amount, duration, salary, job role, etc.)",
+    height=120,
+)
 
-if st.button("📄 Generate Legal Document"):
-if p1_name and p2_name and extra:
-with st.spinner("Drafting document..."):
-prompt = f"""
-You are LegalEase AI. Draft a simple, India-legal compliant {doc_type}
-dated {doc_date} between {p1_name} ({p1_address}) and {p2_name} ({p2_address}).
-Extra details: {extra}.
-Structure: Title, Parties, Recitals, Terms & Conditions, Termination, Signature Section.
-Language: Professional English. Add disclaimer at end: This is AI generated draft, consult advocate.
+# ---------- Generate ----------
+if st.button("Generate Document", type="primary"):
+    if not p1_name or not p2_name:
+        st.warning("Party 1 and Party 2 names kudunga.")
+    else:
+        prompt = f"""
+You are a legal drafting assistant. Draft a professional {doc_type}.
+
+Date: {doc_date}
+Party 1: {p1_name}, Address: {p1_address}
+Party 2: {p2_name}, Address: {p2_address}
+Additional details: {extra if extra else "None"}
+
+Rules:
+- Use clear numbered clauses with headings.
+- Include signature blocks for both parties at the end.
+- Use simple, formal language.
+- Do not invent facts that were not provided; leave blanks like ____ instead.
 """
-response = model.generate_content(prompt)
-st.success("Document Generated!")
-st.write(response.text)
-st.download_button("Download as .txt", response.text, file_name=f"{doc_type}.txt")
-else:
-st.warning("Party names & details fill pannu da!")
+        with st.spinner("Document generate aagudhu..."):
+            try:
+                response = model.generate_content(prompt)
+                st.session_state["result"] = response.text
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-st.sidebar.markdown("**For:** NASSCOM FSP - Generative AI with Google Cloud Data")
+# ---------- Output ----------
+if "result" in st.session_state:
+    st.divider()
+    st.subheader("Generated Document")
+    st.markdown(st.session_state["result"])
+    st.download_button(
+        "Download as .txt",
+        data=st.session_state["result"],
+        file_name=f"{doc_type.replace(' ', '_')}.txt",
+        mime="text/plain",
+    )
